@@ -10,7 +10,7 @@ const SHELL = [
   './',
   './index.html',
   './app.js',
-  './data/spots.js',
+  './data/spots.js?v=4',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',
