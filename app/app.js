@@ -159,7 +159,6 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
         <div style="font-size:12px;color:#9fbfa7">確認 ${s.confirms} · 問題 ${s.issues} · 收錄 ${esc((s.created_at || '').slice(0, 10))}</div>
         <div style="margin-top:8px;display:flex;gap:10px;flex-wrap:wrap">
           <a href="${gmLink(s)}" target="_blank" rel="noopener">Google Maps ↗</a>
-          <a href="https://pikdecor.com/spots/${s.id}" target="_blank" rel="noopener">pikdecor ↗</a>
         </div>
         <button class="visitbtn" data-id="${s.id}" style="margin-top:8px">${isV ? '✓ 已踩過（點擊取消）' : '☐ 標記為踩過'}</button>
       </div>`;
@@ -350,7 +349,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         // 版本查詢字串：繞過 Cloudflare 快取，確保新版 sw 一定被抓到
-        navigator.serviceWorker.register('sw.js?v=2').catch(() => {});
+        navigator.serviceWorker.register('sw.js?v=3').catch(() => {});
       });
     }
   })();
