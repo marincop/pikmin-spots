@@ -73,7 +73,6 @@ async function showBox(sw, ne) {
   if (!ready) return;
   await map.fitBounds(
     [{ lat: sw[0], lng: sw[1] }, { lat: ne[0], lng: ne[1] }], 0, false);
- 2000);
 }
 async function setTapHandler(cb) {
   tapCb = cb;
