@@ -22,4 +22,8 @@ RUN printf '%s\n' \
   '    location = /index.html { add_header Cache-Control "no-cache"; }' \
   '}' > /etc/nginx/conf.d/default.conf
 
+# Skip /docker-entrypoint.sh: its ipv6 script runs `apk manifest nginx`, which
+# hangs on this host's network and blocks nginx from ever starting.
+ENTRYPOINT ["nginx", "-g", "daemon off;"]
+
 EXPOSE 80
