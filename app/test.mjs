@@ -53,10 +53,12 @@ ok('country filter', () => {
   const tw = app.applyFilters(SPOTS, { country: '台灣' });
   assert(tw.length > 0 && tw.every(s => app.countryOf(s.region) === '台灣'));
 });
-ok('category filter (multi via Set)', () => {
-  const cats = new Set(['🍀 公園']);
-  const r = app.applyFilters(SPOTS, { categories: cats });
+ok('single category filter', () => {
+  const r = app.applyFilters(SPOTS, { category: '🍀 公園' });
   assert(r.length > 0 && r.every(s => s.category_label === '🍀 公園'));
+});
+ok('no category -> all categories', () => {
+  assert.equal(app.applyFilters(SPOTS, { category: null }).length, SPOTS.length);
 });
 ok('confirmedOnly', () => {
   const r = app.applyFilters(SPOTS, { confirmedOnly: true });
@@ -66,20 +68,52 @@ ok('namedOnly', () => {
   const r = app.applyFilters(SPOTS, { namedOnly: true });
   assert(r.every(s => s.name));
 });
-ok('search q matches name/address/region', () => {
-  const r = app.applyFilters(SPOTS, { q: '台北' });
-  assert(r.length > 0);
-  assert(r.every(s => (s.name + s.address + s.region + s.category_label).includes('台北')));
-});
 ok('visitedOnly uses set', () => {
   const id = SPOTS[0].id;
   const r = app.applyFilters(SPOTS, { visitedOnly: true, visitedSet: new Set([id]) });
   assert.equal(r.length, 1);
   assert.equal(r[0].id, id);
 });
-ok('combined filters AND', () => {
-  const r = app.applyFilters(SPOTS, { country: '台灣', confirmedOnly: true });
-  assert(r.every(s => app.countryOf(s.region) === '台灣' && s.confirms > 0));
+ok('combined country + category AND', () => {
+  const r = app.applyFilters(SPOTS, { country: '台灣', category: '🍀 公園' });
+  assert(r.every(s => app.countryOf(s.region) === '台灣' && s.category_label === '🍀 公園'));
+});
+
+console.log('twCounty (台灣縣市):');
+ok('桃園市中壢區 -> 桃園市', () => assert.equal(app.twCounty('桃園市中壢區'), '桃園市'));
+ok('臺→台 正規化', () => assert.equal(app.twCounty('臺中市東勢區'), '台中市'));
+ok('宜蘭縣宜蘭市 -> 宜蘭縣', () => assert.equal(app.twCounty('宜蘭縣宜蘭市'), '宜蘭縣'));
+ok('重複市名 台中市台中市北區 -> 台中市', () => assert.equal(app.twCounty('台中市台中市北區'), '台中市'));
+ok('非台灣 -> 空', () => assert.equal(app.twCounty('__overseas__香港'), ''));
+ok('美國 -> 空', () => assert.equal(app.twCounty('美國加利福尼亞英格爾伍德'), ''));
+ok('無縣市前綴 -> 空', () => assert.equal(app.twCounty('中壢區'), ''));
+ok('裸地名 桃園 -> 桃園市', () => assert.equal(app.twCounty('桃園'), '桃園市'));
+ok('裸地名 屏東 -> 屏東縣', () => assert.equal(app.twCounty('屏東'), '屏東縣'));
+ok('前綴地名 台中機場 -> 台中市', () => assert.equal(app.twCounty('台中機場'), '台中市'));
+ok('TW 縣市數量合理', () => {
+  const set = new Set(SPOTS.map(s => app.twCounty(s.region)).filter(Boolean));
+  assert(set.size >= 10, 'county count ' + set.size);
+});
+
+console.log('applyFilters (county):');
+ok('county filter narrows within 台灣', () => {
+  const r = app.applyFilters(SPOTS, { country: '台灣', county: '桃園市' });
+  assert(r.length > 0 && r.every(s => app.twCounty(s.region) === '桃園市'));
+});
+ok('county without country still filters', () => {
+  const r = app.applyFilters(SPOTS, { county: '高雄市' });
+  assert(r.length > 0 && r.every(s => app.twCounty(s.region) === '高雄市'));
+});
+
+console.log('nextCategory (single-select):');
+ok('none -> select', () => assert.deepEqual(app.nextCategory(null, 'A'), { value: 'A', error: false }));
+ok('same -> deselect', () => assert.deepEqual(app.nextCategory('A', 'A'), { value: null, error: false }));
+ok('different while one active -> error, keep first', () =>
+  assert.deepEqual(app.nextCategory('A', 'B'), { value: 'A', error: true }));
+ok('error never returns the tapped value', () => {
+  const r = app.nextCategory('A', 'B');
+  assert.equal(r.error, true);
+  assert.notEqual(r.value, 'B');
 });
 
 console.log('sortSpots:');
@@ -91,12 +125,9 @@ ok('confirms desc', () => {
   const r = app.sortSpots(SPOTS, 'confirms');
   for (let i = 1; i < Math.min(r.length, 500); i++) assert(r[i - 1].confirms >= r[i].confirms);
 });
-ok('name asc', () => {
-  const r = app.sortSpots(SPOTS, 'name');
-  assert(r.length === SPOTS.length);
-});
+ok('name asc', () => assert.equal(app.sortSpots(SPOTS, 'name').length, SPOTS.length));
 ok('distance from origin is ascending', () => {
-  const origin = { lat: 25.033, lng: 121.565 }; // Taipei 101
+  const origin = { lat: 25.033, lng: 121.565 };
   const r = app.sortSpots(SPOTS, 'distance', origin);
   for (let i = 1; i < Math.min(r.length, 500); i++) {
     const a = app.haversine(origin.lat, origin.lng, r[i - 1].lat, r[i - 1].lng);

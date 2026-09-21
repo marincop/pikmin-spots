@@ -23,12 +23,12 @@ html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--
 #bottom{bottom:0;background:linear-gradient(transparent,var(--panel) 40%)}
 input,select,button{font:inherit;color:var(--fg);background:var(--panel2);border:1px solid var(--line);
   border-radius:10px;padding:9px 11px;width:100%}
+select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--dim) 50%),linear-gradient(135deg,var(--dim) 50%,transparent 50%);
+  background-position:calc(100% - 18px) 50%,calc(100% - 13px) 50%;background-size:5px 5px,5px 5px;background-repeat:no-repeat}
 button{cursor:pointer}
 .row{display:flex;gap:8px}
 .row>*{flex:1}
-#searchwrap{display:flex;gap:8px;align-items:center}
-#q{flex:1}
-.icon-btn{width:44px;flex:0 0 44px;display:grid;place-items:center;font-size:18px}
+.icon-btn{display:grid;place-items:center;font-size:15px}
 .chips{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}
 .chips::-webkit-scrollbar{display:none}
 .chip{flex:0 0 auto;padding:6px 11px;border-radius:999px;background:var(--panel2);border:1px solid var(--line);
@@ -55,8 +55,10 @@ button{cursor:pointer}
 .visited{opacity:.55}
 #toast{position:absolute;left:50%;top:64px;transform:translateX(-50%);z-index:60;background:#20402a;
   border:1px solid var(--accent);color:var(--accent);padding:7px 14px;border-radius:999px;font-size:13px;
+  max-width:90vw;text-align:center;
   opacity:0;transition:opacity .25s;pointer-events:none}
 #toast.on{opacity:1}
+#toast.err{background:#3a1f1f;border-color:#ff6b6b;color:#ff9a9a}
 .sheetclose{color:var(--dim);text-align:center;font-size:13px;padding:10px}
 </style>
 </head>
@@ -64,12 +66,14 @@ button{cursor:pointer}
 <div id="map"></div>
 
 <div class="panel" id="top">
-  <div id="searchwrap">
-    <input id="q" type="search" placeholder="🔍 搜尋名稱 / 地址 / 縣市">
-    <button class="icon-btn" id="locate" title="找附近的純點">📍</button>
-    <button class="icon-btn" id="install" title="安裝 App" hidden>⬇️</button>
+  <div class="row">
+    <select id="country" aria-label="選擇國家"><option value="">🌏 全部國家</option></select>
+    <select id="county" aria-label="選擇縣市" hidden><option value="">全部縣市</option></select>
   </div>
-  <div class="chips" id="countries"></div>
+  <div class="row">
+    <button class="icon-btn" id="locate">📍 找附近純點</button>
+    <button class="icon-btn" id="install" hidden>⬇️ 安裝 App</button>
+  </div>
 </div>
 
 <div class="panel" id="bottom">
@@ -85,7 +89,7 @@ button{cursor:pointer}
 </div>
 
 <div id="types">
-  <h3>飾品類型 <span id="typeHint" style="color:var(--dim);font-weight:400;font-size:12px">（可多選）</span></h3>
+  <h3>飾品類型 <span id="typeHint" style="color:var(--dim);font-weight:400;font-size:12px">（只能選一種）</span></h3>
   <div class="tgrid" id="tgrid"></div>
   <div class="sheetclose" id="typeClose">關閉</div>
 </div>
@@ -94,7 +98,8 @@ button{cursor:pointer}
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<!-- ?v= 用來繞過 Cloudflare 對 .js 的 4h 快取；每次改版請 +1 -->
 <script src="data/spots.js"></script>
-<script src="app.js"></script>
+<script src="app.js?v=2"></script>
 </body>
 </html>
