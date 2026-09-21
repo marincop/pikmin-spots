@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#2d5a27">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>皮克敏純點地圖</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
+<style>
+:root{--bg:#0f1a12;--panel:rgba(22,36,26,.96);--panel2:#1d2f22;--line:#2c4534;--fg:#e8f5ea;--dim:#93b39b;--accent:#5ddc7a;--warn:#ffb454}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--fg);
+  font-family:system-ui,-apple-system,"Noto Sans TC","PingFang TC",sans-serif}
+#map{position:absolute;inset:0;z-index:1}
+.panel{position:absolute;left:0;right:0;z-index:20;padding:8px 10px;display:flex;flex-direction:column;gap:8px}
+#top{top:0;background:linear-gradient(var(--panel) 60%,transparent)}
+#bottom{bottom:0;background:linear-gradient(transparent,var(--panel) 40%)}
+input,select,button{font:inherit;color:var(--fg);background:var(--panel2);border:1px solid var(--line);
+  border-radius:10px;padding:9px 11px;width:100%}
+button{cursor:pointer}
+.row{display:flex;gap:8px}
+.row>*{flex:1}
+#searchwrap{display:flex;gap:8px;align-items:center}
+#q{flex:1}
+.icon-btn{width:44px;flex:0 0 44px;display:grid;place-items:center;font-size:18px}
+.chips{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:0 0 auto;padding:6px 11px;border-radius:999px;background:var(--panel2);border:1px solid var(--line);
+  font-size:13px;white-space:nowrap}
+.chip.on{background:var(--accent);color:#0d1b10;border-color:var(--accent);font-weight:700}
+#types{display:none;position:absolute;left:0;right:0;bottom:0;z-index:40;background:var(--panel);
+  border-top:1px solid var(--line);max-height:70%;overflow:auto;padding:12px}
+#types.on{display:block}
+#types h3{margin:0 0 10px;font-size:14px}
+.tgrid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.tbtn{display:flex;justify-content:space-between;gap:6px;padding:8px 10px;border-radius:9px;
+  background:var(--panel2);border:1px solid var(--line);font-size:12.5px;text-align:left}
+.tbtn.on{border-color:var(--accent);background:#20402a;color:var(--accent)}
+.tbtn .n{color:var(--dim)}
+#stats{font-size:12px;color:var(--dim);display:flex;justify-content:space-between;align-items:center}
+#stats b{color:var(--accent)}
+.pop{font-size:13px;line-height:1.5}
+.pop b{color:var(--accent)}
+.pop a{color:#7fd7ff}
+.pop .c{font-family:ui-monospace,monospace;font-size:12px;color:#9fbfa7}
+.leaflet-popup-content-wrapper,.leaflet-popup-tip{background:var(--panel2);color:var(--fg)}
+.leaflet-popup-content{margin:10px 12px}
+.mk{filter:drop-shadow(0 0 3px #000)}
+.visited{opacity:.55}
+#toast{position:absolute;left:50%;top:64px;transform:translateX(-50%);z-index:60;background:#20402a;
+  border:1px solid var(--accent);color:var(--accent);padding:7px 14px;border-radius:999px;font-size:13px;
+  opacity:0;transition:opacity .25s;pointer-events:none}
+#toast.on{opacity:1}
+.sheetclose{color:var(--dim);text-align:center;font-size:13px;padding:10px}
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div class="panel" id="top">
+  <div id="searchwrap">
+    <input id="q" type="search" placeholder="🔍 搜尋名稱 / 地址 / 縣市">
+    <button class="icon-btn" id="locate" title="找附近的純點">📍</button>
+    <button class="icon-btn" id="install" title="安裝 App" hidden>⬇️</button>
+  </div>
+  <div class="chips" id="countries"></div>
+</div>
+
+<div class="panel" id="bottom">
+  <div id="stats">
+    <span>顯示 <b id="shown">0</b> / <span id="total">0</span> 個純點</span>
+    <span><span id="visitedCount">0</span> 個已踩</span>
+  </div>
+  <div class="row">
+    <button id="btnType">🍽️ 飾品類型</button>
+    <button id="btnSort">↕️ 排序：距離</button>
+    <button id="btnReset">♻️ 重設</button>
+  </div>
+</div>
+
+<div id="types">
+  <h3>飾品類型 <span id="typeHint" style="color:var(--dim);font-weight:400;font-size:12px">（可多選）</span></h3>
+  <div class="tgrid" id="tgrid"></div>
+  <div class="sheetclose" id="typeClose">關閉</div>
+</div>
+
+<div id="toast"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script src="data/spots.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

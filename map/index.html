@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>皮克敏純點地圖 · Pikmin Bloom Pure Spots</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
+<style>
+  :root{--bg:#0f1a12;--panel:#16241a;--panel2:#1d2f22;--line:#2c4534;--fg:#e8f5ea;--dim:#8fae97;--accent:#5ddc7a;}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;font-family:system-ui,-apple-system,"Noto Sans TC","PingFang TC",sans-serif;background:var(--bg);color:var(--fg)}
+  #app{display:flex;height:100%;overflow:hidden}
+  #side{width:340px;flex:0 0 340px;background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;min-width:0}
+  #side h1{font-size:16px;margin:0;padding:14px 14px 6px;letter-spacing:.5px}
+  #side .sub{font-size:11px;color:var(--dim);padding:0 14px 10px}
+  .filters{padding:10px 14px;display:grid;gap:8px;border-bottom:1px solid var(--line)}
+  select,input,button{width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);color:var(--fg);font-size:13px}
+  button{cursor:pointer}
+  .row{display:flex;gap:8px}
+  .row>*{flex:1}
+  label.chk{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--dim)}
+  label.chk input{width:auto}
+  #stats{padding:8px 14px;font-size:12px;color:var(--dim);border-bottom:1px solid var(--line)}
+  #stats b{color:var(--accent)}
+  #list{flex:1;overflow:auto}
+  .item{padding:9px 14px;border-bottom:1px solid #1f3126;cursor:pointer}
+  .item:hover{background:var(--panel2)}
+  .item .t{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .item .m{font-size:11px;color:var(--dim);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #map{flex:1;min-width:0}
+  .leaflet-popup-content-wrapper,.leaflet-popup-tip{background:var(--panel2);color:var(--fg)}
+  .pop b{color:var(--accent)}
+  .pop a{color:#7fd7ff}
+  .pop .coords{font-family:ui-monospace,monospace;font-size:12px}
+  @media(max-width:760px){#app{flex-direction:column}#side{width:100%;flex:0 0 46%;height:46%}#side h1{padding-top:10px}}
+</style>
+</head>
+<body>
+<div id="app">
+  <aside id="side">
+    <h1>🍀 皮克敏純點地圖</h1>
+    <div class="sub">資料來源 pikdecor.com · Pikmin Bloom 玩家社群回報</div>
+    <div class="filters">
+      <input id="q" type="search" placeholder="🔍 搜尋名稱 / 地址 / 縣市">
+      <div class="row">
+        <select id="cat"><option value="">全部類別</option></select>
+        <select id="reg"><option value="">全部地區</option></select>
+      </div>
+      <div class="row">
+        <select id="sort">
+          <option value="id">最新收錄</option>
+          <option value="confirms">確認數最多</option>
+          <option value="name">名稱</option>
+        </select>
+        <button id="reset">重設</button>
+      </div>
+      <label class="chk"><input type="checkbox" id="named"> 只顯示有名稱的點</label>
+      <label class="chk"><input type="checkbox" id="confirmed" checked> 只看有人確認過的 (<span id="cn">0</span>)</label>
+    </div>
+    <div id="stats">顯示 <b id="shown">0</b> / <span id="total">0</span> 個純點</div>
+    <div id="list"></div>
+  </aside>
+  <div id="map"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script src="data/spots.js"></script>
+<script>
+const SPOTS = window.PIKMIN_SPOTS || [];
+const $ = s => document.querySelector(s);
+
+const map = L.map('map', {worldCopyJump:true}).setView([23.9, 120.9], 7);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19, attribution: '&copy; OpenStreetMap contributors'
+}).addTo(map);
+
+const clusters = L.markerClusterGroup({maxClusterRadius:45, disableClusteringAtZoom:15});
+map.addLayer(clusters);
+
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const gmLink = s => `https://www.google.com/maps/search/?api=1&query=${s.lat},${s.lng}`;
+const isOverseas = s => /香港|日本|美國|英國|德國|西班牙|法國|埃及|巴西|澳洲|加拿大|紐西蘭|葡萄牙|希臘|克羅埃西亞|印度|越南|比利時|秘魯|墨西哥|阿拉伯|🌏/.test(s.region);
+
+function popup(s){
+  return `<div class="pop">
+    <div><b>${esc(s.category_label)}</b> · #${s.id}</div>
+    <div style="font-size:14px;margin:4px 0">${esc(s.name || '(未命名)')}</div>
+    <div style="font-size:12px;color:#9fbfa7">${esc(s.region || '')}${s.address ? ' · ' + esc(s.address) : ''}</div>
+    <div class="coords" style="margin:6px 0">${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}</div>
+    <div style="font-size:12px;color:#9fbfa7">確認 ${s.confirms} · 問題 ${s.issues} · 收錄 ${esc((s.created_at||'').slice(0,10))}</div>
+    <div style="margin-top:8px;display:flex;gap:10px">
+      <a href="${gmLink(s)}" target="_blank" rel="noopener">Google Maps ↗</a>
+      <a href="https://pikdecor.com/spots/${s.id}" target="_blank" rel="noopener">pikdecor ↗</a>
+    </div></div>`;
+}
+
+function marker(s){
+  const m = L.marker([s.lat, s.lng], {title: s.name || ('#'+s.id)});
+  m.bindPopup(popup(s));
+  m.spot = s;
+  return m;
+}
+
+const layers = new Map();      // id -> marker
+SPOTS.forEach(s => layers.set(s.id, marker(s)));
+
+// 下拉選單
+const catCount = {}, regCount = {};
+SPOTS.forEach(s => { catCount[s.category_label] = (catCount[s.category_label]||0)+1; regCount[s.region] = (regCount[s.region]||0)+1; });
+Object.entries(catCount).sort((a,b)=>b[1]-a[1]).forEach(([k,v]) => $('#cat').insertAdjacentHTML('beforeend', `<option value="${esc(k)}">${esc(k)} (${v})</option>`));
+Object.entries(regCount).sort((a,b)=>b[1]-a[1]).forEach(([k,v]) => $('#reg').insertAdjacentHTML('beforeend', `<option value="${esc(k)}">${esc(k)} (${v})</option>`));
+$('#total').textContent = SPOTS.length;
+$('#cn').textContent = SPOTS.filter(s=>s.confirms>0).length;
+
+function current(){
+  const q = $('#q').value.trim().toLowerCase();
+  const cat = $('#cat').value, reg = $('#reg').value;
+  const named = $('#named').checked, conf = $('#confirmed').checked;
+  let out = SPOTS.filter(s => {
+    if (cat && s.category_label !== cat) return false;
+    if (reg && s.region !== reg) return false;
+    if (named && !s.name) return false;
+    if (conf && !(s.confirms > 0)) return false;
+    if (q){ const hay = (s.name+' '+s.address+' '+s.region+' '+s.category_label).toLowerCase(); if (!hay.includes(q)) return false; }
+    return true;
+  });
+  const sort = $('#sort').value;
+  out.sort((a,b) => sort==='confirms' ? b.confirms-a.confirms : sort==='name' ? (a.name||'～').localeCompare(b.name||'～','zh-Hant') : b.id-a.id);
+  return out;
+}
+
+function render(){
+  const rows = current();
+  clusters.clearLayers();
+  const pts = [];
+  rows.forEach(s => { const m = layers.get(s.id); if (m) pts.push(m); });
+  if (pts.length) clusters.addLayers(pts);
+  if (rows.length) map.fitBounds(L.latLngBounds(rows.map(s=>[s.lat,s.lng])), {padding:[30,30], maxZoom:15});
+
+  $('#shown').textContent = rows.length;
+  const list = $('#list');
+  list.innerHTML = rows.slice(0, 800).map(s => `<div class="item" data-id="${s.id}">
+      <div class="t">${esc(s.category_label)} ${esc(s.name || '(未命名)')}</div>
+      <div class="m">${esc(s.region||'')} · 確認 ${s.confirms}${s.issues?' · 問題 '+s.issues:''}</div>
+    </div>`).join('') + (rows.length>800 ? `<div class="item" style="color:var(--dim)">…還有 ${rows.length-800} 筆，請縮小篩選範圍</div>` : '');
+  list.querySelectorAll('.item[data-id]').forEach(el => el.onclick = () => {
+    const s = rows.find(x => x.id == el.dataset.id);
+    if (!s) return;
+    map.setView([s.lat,s.lng], 17, {animate:true});
+    const m = layers.get(s.id); if (m) { clusters.zoomToShowLayer(m, () => m.openPopup()); }
+  });
+}
+
+['q','cat','reg','sort','named','confirmed'].forEach(id => {
+  const el = document.getElementById(id);
+  el.addEventListener(id==='q' ? 'input' : 'change', render);
+});
+$('#reset').onclick = () => { $('#q').value=''; $('#cat').value=''; $('#reg').value=''; $('#sort').value='id'; $('#named').checked=false; $('#confirmed').checked=true; render(); };
+
+render();
+</script>
+</body>
+</html>

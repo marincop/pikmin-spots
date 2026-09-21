@@ -1,0 +1,17 @@
+{
+  "name": "皮克敏純點地圖",
+  "short_name": "皮克敏純點",
+  "description": "Pikmin Bloom 純點離線互動地圖（資料來源 pikdecor.com 玩家社群）",
+  "lang": "zh-TW",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0f1a12",
+  "theme_color": "#2d5a27",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
