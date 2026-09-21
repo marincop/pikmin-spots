@@ -182,4 +182,29 @@ ok('Android/Windows -> google', () => {
 });
 ok('empty ua does not crash', () => assert.equal(app.navPlatform(undefined), 'google'));
 
+console.log('regionBounds:');
+ok('50km box is ~100km tall', () => {
+  const [[s], [n]] = app.regionBounds(25.033, 121.565, 50000);
+  const h = app.haversine(s, 121.565, n, 121.565);
+  assert(Math.abs(h - 100000) < 500, `height ${h}`);
+});
+ok('50km box is ~100km wide at that latitude', () => {
+  const [[s, w], [n, e]] = app.regionBounds(25.033, 121.565, 50000);
+  const mid = (s + n) / 2;
+  const wd = app.haversine(mid, w, mid, e);
+  assert(Math.abs(wd - 100000) < 1500, `width ${wd}`);
+});
+ok('center is preserved', () => {
+  const [[s, w], [n, e]] = app.regionBounds(25.033, 121.565, 50000);
+  assert(Math.abs((s + n) / 2 - 25.033) < 1e-9 && Math.abs((w + e) / 2 - 121.565) < 1e-9);
+});
+ok('south/north ordering (s < n)', () => {
+  const box = app.regionBounds(-33.86, 151.21, 50000);
+  assert(box[0][0] < box[1][0] && box[0][1] < box[1][1]);
+});
+ok('no crash at the poles', () => {
+  const box = app.regionBounds(89.9, 0, 50000);
+  assert(box.every(p => p.every(v => Number.isFinite(v))));
+});
+
 console.log(`\n${pass} checks passed ✅`);

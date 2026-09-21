@@ -68,6 +68,13 @@ async function goTo(lat, lng, zoom) {
   await map.setCamera({ coordinate: { lat, lng }, zoom, animate: false });
 }
 
+/** 框住一個範圍（兩個對角座標）：用於「定位點半徑 50 公里」這種沒有 marker 可 fit 的情況 */
+async function showBox(sw, ne) {
+  if (!ready) return;
+  await map.fitBounds(
+    [{ lat: sw[0], lng: sw[1] }, { lat: ne[0], lng: ne[1] }], 0, false);
+ 2000);
+}
 async function setTapHandler(cb) {
   tapCb = cb;
   if (ready) await map.setOnMarkerClickListener((d) => cb(d.markerId));
@@ -80,5 +87,5 @@ async function showMe(on) {
 }
 
 window.AppleMapsAdapter = {
-  available: true, init, addMarkers, removeMarkers, fit, goTo, setTapHandler, showMe,
+  available: true, init, addMarkers, removeMarkers, fit, goTo, showBox, setTapHandler, showMe,
 };

@@ -126,10 +126,17 @@ function navPlatform(ua) {
   return /iPhone|iPad|iPod|Macintosh|Mac OS X/.test(String(ua || '')) ? 'apple' : 'google';
 }
 
+/** 以某點為中心、半徑 radiusM 公尺的外接矩形 → [[南,西],[北,東]]（地圖框選用） */
+function regionBounds(lat, lng, radiusM) {
+  const dLat = radiusM / 111320;
+  const dLng = Math.min(180, radiusM / (111320 * Math.max(0.05, Math.cos(lat * Math.PI / 180))));
+  return [[lat - dLat, lng - dLng], [lat + dLat, lng + dLng]];
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     countryOf, twCounty, haversine, applyFilters, nextCategory, sortSpots, fmtDist,
-    navURL, navPlatform,
+    navURL, navPlatform, regionBounds,
   };
 }
 
@@ -150,7 +157,9 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       country: '', county: '', category: null,
       namedOnly: false, confirmedOnly: false, visitedOnly: false,
       sortMode: 'distance', origin: null, rows: [],
+      near: false,          // 目前是不是「我附近」模式（地圖固定在定位點 50 公里）
     };
+    const NEAR_RADIUS_M = 50000;   // 「我附近」＝定位點半徑 50 公里
 
     /* ---------- 地圖層：iOS 走原生 Apple 地圖（MapKit），其餘用 Leaflet ---------- */
     const APPLE = (window.AppleMapsAdapter && window.AppleMapsAdapter.available)
@@ -244,12 +253,13 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       countyCount[b] - countyCount[a] || a.localeCompare(b, 'zh-Hant'));
     $('#county').innerHTML = '<option value="">全部縣市</option>' +
       countyList.map(c => `<option value="${esc(c)}">${esc(c)}（${countyCount[c]}）</option>`).join('');
-    $('#county').addEventListener('change', e => { state.county = e.target.value; render(); });
+    $('#county').addEventListener('change', e => { state.county = e.target.value; state.near = false; render(); });
 
     $('#place').addEventListener('change', e => {
       const v = e.target.value;
-      if (v === NEAR) { locate(true); return; }   // 步驟②選「我附近」→ 定位 + 依距離排序
+      if (v === NEAR) { locate(true); return; }   // 步驟②選「我附近」→ 定位 + 依距離排序 + 50 公里視野
       state.country = v;
+      state.near = false;                          // 離開「我附近」→ 視野交還給篩選結果
       const isTW = v === '台灣';
       $('#county').hidden = !isTW;
       if (!isTW) { state.county = ''; $('#county').value = ''; }
@@ -307,6 +317,13 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       toast(visited.has(id) ? '已標記踩過 ✅' : '已取消標記');
     }
 
+    /** 把地圖框到「以 (lat,lng) 為中心、半徑 radiusM」的範圍（Leaflet / MapKit 共用） */
+    function showRegion(lat, lng, radiusM) {
+      const b = regionBounds(lat, lng, radiusM);
+      if (APPLE) { APPLE.showBox(b[0], b[1]); return; }
+      map.fitBounds(L.latLngBounds(b), { padding: [0, 0], animate: false });
+    }
+
     /* 點一個純點：iOS 開資訊面板、web 用 Leaflet popup */
     function openSpot(id) {
       const s = SPOTS.find(x => String(x.id) === String(id));
@@ -343,13 +360,16 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
         if (toRemove.length) await APPLE.removeMarkers(toRemove);
         if (toAdd.length) await APPLE.addMarkers(toAdd);
         appleIds = want;
-        if (rows.length) await APPLE.fit(rows);
+        if (state.near && state.origin) showRegion(state.origin.lat, state.origin.lng, NEAR_RADIUS_M);
+        else if (rows.length) await APPLE.fit(rows);
       } else {
         clusters.clearLayers();
         const pts = [];
         rows.forEach(s => { const m = layers.get(s.id); if (m) pts.push(m); });
         if (pts.length) clusters.addLayers(pts);
-        if (rows.length) {
+        if (state.near && state.origin) {
+          showRegion(state.origin.lat, state.origin.lng, NEAR_RADIUS_M);
+        } else if (rows.length) {
           map.fitBounds(L.latLngBounds(rows.map(s => [s.lat, s.lng])),
             { padding: [40, 40], maxZoom: 15 });
         }
@@ -435,21 +455,25 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     const openNearby = on => $('#nearby').classList.toggle('on', on);
     $('#nearbyClose').onclick = () => openNearby(false);
 
-    function locate(showToast) {
-      toast('定位中…');
+    function locate(showToast, opts) {
+      const quiet = !!(opts && opts.quiet);      // 開場自動定位：不跳 toast、不自動開清單
+      if (!quiet) toast('定位中…');
       getGeo().then(o => {
         state.origin = { lat: o.lat, lng: o.lng };
         state.sortMode = 'distance';
+        state.near = true;                        // 地圖框回定位點 50 公里
         showMe(o);
-        if (APPLE) APPLE.goTo(o.lat, o.lng, 14); else map.setView([o.lat, o.lng], 14);
-        render();
+        render();                                 // render 內依 state.near 決定視野
+        showRegion(o.lat, o.lng, NEAR_RADIUS_M);
         showNearby();
-        openNearby(true);
+        if (!quiet) openNearby(true);
         $('#relocate').hidden = false;
         if (showToast) toast('已定位，依距離排序 ✅');
       }).catch(err => {
         const msg = String(err && (err.message || err.code) || '');
         if ($('#place').value === NEAR) $('#place').value = '';   // 定位失敗退回「全部」
+        state.near = false;
+        $('#relocate').hidden = true;
         if (showToast) toast(msg.includes('denied') || msg.includes('permission') || msg.includes('User denied')
           ? '定位被拒（請到設定允許）' : '定位失敗，請再試一次', true);
       });
@@ -476,6 +500,9 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     syncTypeUI();
     syncSortBtn();
     render();
+
+    // 開場就抓 GPS：帶出定位藍點，地圖框到定位點半徑 50 公里（安靜模式：不跳 toast、不自動開清單）
+    locate(false, { quiet: true });
 
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
