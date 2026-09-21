@@ -151,4 +151,35 @@ ok('meters', () => assert.equal(app.fmtDist(540), '540 m'));
 ok('km 1dp', () => assert.equal(app.fmtDist(1500), '1.5 km'));
 ok('km 0dp over 10km', () => assert.equal(app.fmtDist(23456), '23 km'));
 
+console.log('navURL:');
+ok('apple -> maps.apple.com daddr, no saddr (starts from current location)', () => {
+  const u = app.navURL(25.033, 121.565, 'apple');
+  assert.equal(u, 'https://maps.apple.com/?daddr=25.033,121.565&dirflg=d');
+  assert(!u.includes('saddr'), 'must not pin a start point');
+});
+ok('google fallback -> /maps/dir/?destination=...', () => {
+  const u = app.navURL(25.033, 121.565, 'google');
+  assert.equal(u, 'https://www.google.com/maps/dir/?api=1&destination=25.033,121.565&travelmode=driving');
+  assert(!u.includes('origin='), 'must not pin a start point');
+});
+ok('negative lng survives (west hemisphere)', () => {
+  assert(app.navURL(-33.86, -151.21, 'apple').includes('daddr=-33.86,-151.21'));
+});
+
+console.log('navPlatform:');
+ok('iPhone/iPad/Mac -> apple', () => {
+  for (const ua of [
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15',
+    'Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X) AppleWebKit/605.1.15',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+  ]) assert.equal(app.navPlatform(ua), 'apple', ua);
+});
+ok('Android/Windows -> google', () => {
+  for (const ua of [
+    'Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 Chrome/130',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130',
+  ]) assert.equal(app.navPlatform(ua), 'google', ua);
+});
+ok('empty ua does not crash', () => assert.equal(app.navPlatform(undefined), 'google'));
+
 console.log(`\n${pass} checks passed ✅`);

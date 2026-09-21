@@ -112,8 +112,25 @@ function fmtDist(m) {
   return m < 1000 ? Math.round(m) + ' m' : (m / 1000).toFixed(m < 10000 ? 1 : 0) + ' km';
 }
 
+/* 「導航到這裡」的連結：刻意不帶起點參數（Apple 的 saddr / Google 的 origin），
+ * 這樣地圖 App 會用「裝置目前位置」當出發點；dirflg=d / travelmode=driving = 開車導航。*/
+function navURL(lat, lng, platform) {
+  if (String(platform) === 'apple') {
+    return `https://maps.apple.com/?daddr=${lat},${lng}&dirflg=d`;
+  }
+  return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`;
+}
+
+/** 只在 Apple 平台用 Apple 地圖（iPhone/iPad/Mac，含 iOS 殼的 WKWebView）；其他平台退 Google 導航 */
+function navPlatform(ua) {
+  return /iPhone|iPad|iPod|Macintosh|Mac OS X/.test(String(ua || '')) ? 'apple' : 'google';
+}
+
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { countryOf, twCounty, haversine, applyFilters, nextCategory, sortSpots, fmtDist };
+  module.exports = {
+    countryOf, twCounty, haversine, applyFilters, nextCategory, sortSpots, fmtDist,
+    navURL, navPlatform,
+  };
 }
 
 /* ---------- browser bootstrap ---------- */
@@ -169,6 +186,8 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     }
 
     const gmLink = s => `https://www.google.com/maps/search/?api=1&query=${s.lat},${s.lng}`;
+    const NAV = navPlatform(navigator.userAgent);   // 'apple' | 'google'
+    const navLink = s => navURL(s.lat, s.lng, NAV);
 
     function popupHTML(s) {
       const isV = visited.has(s.id);
@@ -180,7 +199,8 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
         <div style="font-size:12px;color:#9fbfa7">${esc(s.region || '')}${s.address ? ' · ' + esc(s.address) : ''}</div>
         <div class="c" style="margin:6px 0">${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}${dist ? ' · ' + dist : ''}</div>
         <div style="font-size:12px;color:#9fbfa7">確認 ${s.confirms} · 問題 ${s.issues} · 收錄 ${esc((s.created_at || '').slice(0, 10))}</div>
-        <div style="margin-top:8px;display:flex;gap:10px;flex-wrap:wrap">
+        <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <a class="navbtn" href="${navLink(s)}" target="_blank" rel="noopener">🧭 導航到這裡</a>
           <a href="${gmLink(s)}" target="_blank" rel="noopener">Google Maps ↗</a>
         </div>
         <button class="visitbtn" data-id="${s.id}" style="margin-top:8px">${isV ? '✓ 已踩過（點擊取消）' : '☐ 標記為踩過'}</button>
