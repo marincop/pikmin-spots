@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Spike: 原生 Apple 地圖</title>
+<style>
+  html,body{margin:0;height:100%;background:#0f1a12;color:#e8f5ea;
+    font-family:system-ui,-apple-system,"PingFang TC",sans-serif}
+  #map{position:absolute;inset:0;background:transparent}
+  #banner{position:absolute;left:8px;right:8px;top:calc(8px + env(safe-area-inset-top));z-index:10;
+    background:rgba(22,36,26,.94);border:1px solid #2c4534;border-radius:12px;padding:10px 12px;
+    font-size:13px;line-height:1.55;font-family:ui-monospace,"SF Mono",monospace}
+  #banner.err{border-color:#ff6b6b;color:#ff9a9a}
+</style>
+</head>
+<body>
+<capacitor-apple-map id="map" style="position:absolute; inset:0"></capacitor-apple-map>
+<div id="banner">啟動中…</div>
+<script src="data/spots.js"></script>
+<script src="vendor/apple-maps.js"></script>
+</body>
+</html>

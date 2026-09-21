@@ -1,0 +1,11 @@
+{
+  "appId": "com.marincop.purespotmap",
+  "appName": "純點地圖",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  },
+  "ios": {
+    "contentInset": "never"
+  }
+}

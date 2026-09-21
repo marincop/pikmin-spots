@@ -1,0 +1,23 @@
+# 依賴
+node_modules/
+
+# 產物（build-ipa.sh / cap copy 會重新產生）
+build/
+www/
+ios/App/App/public/
+ios/App/App/capacitor.config.json
+ios/App/CapApp-SPM/Package.resolved
+ios/App/build/
+DerivedData/
+
+# Xcode 使用者狀態
+xcuserdata/
+*.xcuserstate
+*.moved-aside
+.DS_Store
+
+# 機密（憑證一律不放 repo；如需手動簽章走 keychain / 1Password）
+*.p12
+*.mobileprovision
+*.p8
+private_keys/
