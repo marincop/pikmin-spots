@@ -119,7 +119,7 @@ if (typeof module !== 'undefined' && module.exports) {
 /* ---------- browser bootstrap ---------- */
 
 if (typeof window !== 'undefined' && typeof document !== 'undefined') {
-  (function () {
+  (async function () {
     const SPOTS = window.PIKMIN_SPOTS || [];
     const $ = s => document.querySelector(s);
     const esc = s => String(s == null ? '' : s)
@@ -135,15 +135,38 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       sortMode: 'distance', origin: null, rows: [],
     };
 
-    /* map */
-    const map = L.map('map', { worldCopyJump: true, zoomControl: false })
-      .setView([23.9, 120.9], 7);
-    L.control.zoom({ position: 'bottomright' }).addTo(map);
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19, attribution: '&copy; OpenStreetMap',
-    }).addTo(map);
-    const clusters = L.markerClusterGroup({ maxClusterRadius: 45, disableClusteringAtZoom: 15 });
-    map.addLayer(clusters);
+    /* ---------- 地圖層：iOS 走原生 Apple 地圖（MapKit），其餘用 Leaflet ---------- */
+    const APPLE = (window.AppleMapsAdapter && window.AppleMapsAdapter.available)
+      ? window.AppleMapsAdapter : null;
+    const layers = new Map();         // Leaflet markers
+    let map = null, clusters = null;  // Leaflet（只在非 iOS 路徑建立）
+    let appleIds = new Set();         // MapKit 目前顯示過的 markerId
+
+    if (APPLE) {
+      await APPLE.init();
+      await APPLE.setTapHandler(id => openSpot(id));
+    } else {
+      map = L.map('map', { worldCopyJump: true, zoomControl: false })
+        .setView([23.9, 120.9], 7);
+      L.control.zoom({ position: 'bottomright' }).addTo(map);
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19, attribution: '&copy; OpenStreetMap',
+      }).addTo(map);
+      clusters = L.markerClusterGroup({ maxClusterRadius: 45, disableClusteringAtZoom: 15 });
+      map.addLayer(clusters);
+
+      // Force a relayout after first paint: in native WKWebView wrappers (Capacitor)
+      // and some iOS PWA launch paths, Leaflet can compute the container size
+      // before the webview has finished its own layout pass, leaving the map
+      // rendered in a truncated strip until the next resize event.
+      const fixMapSize = () => map.invalidateSize();
+      requestAnimationFrame(() => requestAnimationFrame(fixMapSize));
+      window.addEventListener('resize', fixMapSize);
+      window.addEventListener('orientationchange', fixMapSize);
+      if (window.visualViewport) window.visualViewport.addEventListener('resize', fixMapSize);
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) fixMapSize(); });
+      setTimeout(fixMapSize, 300);
+    }
 
     const gmLink = s => `https://www.google.com/maps/search/?api=1&query=${s.lat},${s.lng}`;
 
@@ -164,30 +187,24 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       </div>`;
     }
 
-    const layers = new Map();
-    SPOTS.forEach(s => {
-      const m = L.marker([s.lat, s.lng], { title: s.name || ('#' + s.id) });
-      m.spot = s;
-      m.bindPopup(() => popupHTML(s));
-      layers.set(s.id, m);
-    });
+    if (!APPLE) {
+      SPOTS.forEach(s => {
+        const m = L.marker([s.lat, s.lng], { title: s.name || ('#' + s.id) });
+        m.spot = s;
+        m.bindPopup(() => popupHTML(s));
+        layers.set(s.id, m);
+      });
 
-    map.on('popupopen', e => {
-      const el = e.popup.getElement();
-      const btn = el && el.querySelector('.visitbtn');
-      if (!btn) return;
-      btn.onclick = () => {
-        const id = Number(btn.dataset.id);
-        if (visited.has(id)) visited.delete(id); else visited.add(id);
-        saveVisited();
-        syncVisitedMarkers();
-        btn.textContent = visited.has(id) ? '✓ 已踩過（點擊取消）' : '☐ 標記為踩過';
-        $('#visitedCount').textContent = visited.size;
-        toast(visited.has(id) ? '已標記踩過 ✅' : '已取消標記');
-      };
-    });
+      map.on('popupopen', e => {
+        const el = e.popup.getElement();
+        const btn = el && el.querySelector('.visitbtn');
+        if (!btn) return;
+        btn.onclick = () => toggleVisit(Number(btn.dataset.id), btn);
+      });
+    }
 
-    /* 國家選擇（單選下拉） */
+    /* ② 地點（下拉：全部 / 我附近 / 各國）＋台灣縣市 */
+    const NEAR = '__near__';
     const countryCount = {};
     SPOTS.forEach(s => { const c = countryOf(s.region); countryCount[c] = (countryCount[c] || 0) + 1; });
     const countryList = Object.keys(countryCount).sort((a, b) => {
@@ -195,7 +212,9 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       if (b === '台灣') return 1;
       return countryCount[b] - countryCount[a] || a.localeCompare(b, 'zh-Hant');
     });
-    $('#country').innerHTML = '<option value="">🌏 全部國家</option>' +
+    $('#place').innerHTML =
+      '<option value="">② 地點：🌏 全部</option>' +
+      `<option value="${NEAR}">② 地點：📍 我附近（用定位）</option>` +
       countryList.map(c => `<option value="${esc(c)}">${esc(c)}（${countryCount[c]}）</option>`).join('');
 
     /* 縣市（僅台灣）：細分到縣市 */
@@ -207,40 +226,31 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       countyList.map(c => `<option value="${esc(c)}">${esc(c)}（${countyCount[c]}）</option>`).join('');
     $('#county').addEventListener('change', e => { state.county = e.target.value; render(); });
 
-    $('#country').addEventListener('change', e => {
-      state.country = e.target.value;
-      const isTW = state.country === '台灣';
+    $('#place').addEventListener('change', e => {
+      const v = e.target.value;
+      if (v === NEAR) { locate(true); return; }   // 步驟②選「我附近」→ 定位 + 依距離排序
+      state.country = v;
+      const isTW = v === '台灣';
       $('#county').hidden = !isTW;
       if (!isTW) { state.county = ''; $('#county').value = ''; }
+      openNearby(false);
       render();
     });
 
-    /* 飾品類型（只能選一種） */
+    /* ① 飾品類型（下拉、單選；先選類型再選地點） */
     const catCount = {};
     SPOTS.forEach(s => { catCount[s.category_label] = (catCount[s.category_label] || 0) + 1; });
     const cats = Object.entries(catCount).sort((a, b) => b[1] - a[1]);
-    $('#tgrid').innerHTML = cats.map(([k, v]) =>
-      `<button class="tbtn" data-k="${esc(k)}"><span>${esc(k)}</span><span class="n">${v}</span></button>`
-    ).join('');
-    const syncTypeUI = () => {
-      $('#tgrid').querySelectorAll('.tbtn').forEach(x =>
-        x.classList.toggle('on', x.dataset.k === state.category));
-      $('#btnType').textContent = state.category ? '🍽️ ' + state.category : '🍽️ 飾品類型';
-      $('#typeHint').textContent = state.category ? `（已選：${state.category}）` : '（只能選一種）';
-    };
-    $('#tgrid').querySelectorAll('.tbtn').forEach(el => el.onclick = () => {
-      const tapped = el.dataset.k;
-      const { value, error } = nextCategory(state.category, tapped);
-      if (error) {
-        toast(`⚠️ 飾品類型一次只能選一種，請先取消「${state.category}」`, true);
-        return;
-      }
-      state.category = value;
+    $('#decor').innerHTML = '<option value="">① 飾品類型：全部</option>' +
+      cats.map(([k, v]) => `<option value="${esc(k)}">${esc(k)}（${v}）</option>`).join('');
+    const syncTypeUI = () => { $('#decor').value = state.category || ''; };
+    $('#decor').addEventListener('change', e => {
+      state.category = e.target.value || null;
       syncTypeUI();
-      if (value) { toast('已選：' + value + '（僅顯示此類型）'); openTypes(false); }
+      toast(state.category ? `① ${state.category}（${catCount[state.category]} 個）` : '① 飾品類型：全部');
       render();
+      if (state.origin) showNearby();
     });
-    const openTypes = on => $('#types').classList.toggle('on', on);
 
     /* toast */
     let toastT;
@@ -261,14 +271,43 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     }
 
     function syncVisitedMarkers() {
+      if (APPLE) return;   // MapKit 用原生 pin，不吃 CSS class
       layers.forEach((m, id) => {
         const el = m.getElement();
         if (el) el.classList.toggle('visited', visited.has(id));
       });
     }
 
-    /* render */
-    function render() {
+    function toggleVisit(id, btn) {
+      if (visited.has(id)) visited.delete(id); else visited.add(id);
+      saveVisited();
+      syncVisitedMarkers();
+      if (btn) btn.textContent = visited.has(id) ? '✓ 已踩過（點擊取消）' : '☐ 標記為踩過';
+      $('#visitedCount').textContent = visited.size;
+      toast(visited.has(id) ? '已標記踩過 ✅' : '已取消標記');
+    }
+
+    /* 點一個純點：iOS 開資訊面板、web 用 Leaflet popup */
+    function openSpot(id) {
+      const s = SPOTS.find(x => String(x.id) === String(id));
+      if (!s) return;
+      if (APPLE) {
+        APPLE.goTo(s.lat, s.lng, 17);
+        $('#spotBody').innerHTML = popupHTML(s);
+        const btn = $('#spotBody').querySelector('.visitbtn');
+        if (btn) btn.onclick = () => toggleVisit(Number(btn.dataset.id), btn);
+        openNearby(false);
+        $('#spot').classList.add('on');
+      } else {
+        map.setView([s.lat, s.lng], 17);
+        const m = layers.get(s.id);
+        if (m && clusters.hasLayer(m)) setTimeout(() => m.openPopup(), 250);
+      }
+    }
+    $('#spotClose').onclick = () => $('#spot').classList.remove('on');
+
+    /* render（async：MapKit 的 marker 增減是原生呼叫） */
+    async function render() {
       const rows = sortSpots(applyFilters(SPOTS, {
         country: state.country, county: state.county, category: state.category,
         namedOnly: state.namedOnly, confirmedOnly: state.confirmedOnly,
@@ -276,23 +315,32 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       }), state.sortMode, state.origin);
       state.rows = rows;
 
-      clusters.clearLayers();
-      const pts = [];
-      rows.forEach(s => { const m = layers.get(s.id); if (m) pts.push(m); });
-      if (pts.length) clusters.addLayers(pts);
-      if (rows.length) {
-        map.fitBounds(L.latLngBounds(rows.map(s => [s.lat, s.lng])),
-          { padding: [40, 40], maxZoom: 15 });
+      if (APPLE) {
+        // 差集更新：只新增/移除有變動的點，不用每次重畫 8702 個 marker
+        const want = new Set(rows.map(s => String(s.id)));
+        const toAdd = rows.filter(s => !appleIds.has(String(s.id)));
+        const toRemove = [...appleIds].filter(id => !want.has(id));
+        if (toRemove.length) await APPLE.removeMarkers(toRemove);
+        if (toAdd.length) await APPLE.addMarkers(toAdd);
+        appleIds = want;
+        if (rows.length) await APPLE.fit(rows);
+      } else {
+        clusters.clearLayers();
+        const pts = [];
+        rows.forEach(s => { const m = layers.get(s.id); if (m) pts.push(m); });
+        if (pts.length) clusters.addLayers(pts);
+        if (rows.length) {
+          map.fitBounds(L.latLngBounds(rows.map(s => [s.lat, s.lng])),
+            { padding: [40, 40], maxZoom: 15 });
+        }
+        syncVisitedMarkers();
       }
-      syncVisitedMarkers();
       $('#shown').textContent = rows.length;
       $('#visitedCount').textContent = visited.size;
       syncSortBtn();
     }
 
     /* events */
-    $('#btnType').onclick = () => openTypes(true);
-    $('#typeClose').onclick = () => openTypes(false);
     $('#btnSort').onclick = () => {
       const i = SORTS.findIndex(s => s[0] === state.sortMode);
       state.sortMode = SORTS[(i + 1) % SORTS.length][0];
@@ -302,28 +350,91 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     $('#btnReset').onclick = () => {
       state.country = ''; state.county = ''; state.category = null;
       state.namedOnly = false; state.confirmedOnly = false; state.visitedOnly = false;
-      $('#country').value = '';
+      $('#decor').value = '';
+      $('#place').value = '';
       $('#county').value = ''; $('#county').hidden = true;
       syncTypeUI();
-      openTypes(false);
+      openNearby(false);
+      $('#spot').classList.remove('on');
+      $('#relocate').hidden = true;
       toast('已重設');
       render();
     };
 
-    /* geolocation */
-    function locate(showToast) {
-      if (!navigator.geolocation) { if (showToast) toast('此裝置不支援定位', true); return; }
-      toast('定位中…');
-      navigator.geolocation.getCurrentPosition(pos => {
-        state.origin = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        state.sortMode = 'distance';
-        map.setView([state.origin.lat, state.origin.lng], 14);
-        if (showToast) toast('已定位，依距離排序');
-        render();
-      }, () => { if (showToast) toast('定位失敗（請允許定位權限）', true); },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 });
+    /* geolocation — 優先用 Capacitor 原生 Geolocation，沒包殼時退回瀏覽器 API */
+    function getGeo() {
+      const cap = (window.Capacitor && window.Capacitor.Plugins &&
+        window.Capacitor.Plugins.Geolocation) || null;
+      if (cap && typeof cap.getCurrentPosition === 'function') {
+        return cap.getCurrentPosition({ enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 })
+          .then(p => ({ lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy }));
+      }
+      return new Promise((res, rej) => {
+        if (!navigator.geolocation) return rej(new Error('unsupported'));
+        navigator.geolocation.getCurrentPosition(
+          p => res({ lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy }),
+          rej, { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 });
+      });
     }
-    $('#locate').onclick = () => locate(true);
+
+    /* 我的位置圖層：藍點 + 精確度圓 */
+    let meLayer = null, accLayer = null;
+    function showMe(o) {
+      if (APPLE) { APPLE.showMe(true); return; }   // MapKit 原生藍點
+      const ll = [o.lat, o.lng];
+      const icon = L.divIcon({ className: '', html: '<div id="me"></div>', iconSize: [16, 16], iconAnchor: [8, 8] });
+      if (!meLayer) {
+        meLayer = L.marker(ll, { icon, interactive: false, zIndexOffset: 1000 }).addTo(map);
+        accLayer = L.circle(ll, { radius: o.acc || 50, color: '#3b82f6', weight: 1,
+          opacity: .5, fillColor: '#3b82f6', fillOpacity: .12, interactive: false }).addTo(map);
+      } else {
+        meLayer.setLatLng(ll);
+        if (accLayer) { accLayer.setLatLng(ll); accLayer.setRadius(o.acc || 50); }
+      }
+    }
+
+    /* 附近純點清單（依目前篩選結果排序後取前 15） */
+    function showNearby() {
+      if (!state.origin) return;
+      const rows = state.rows.slice(0, 15);
+      $('#nearbyCount').textContent = rows.length ? `（最近 ${rows.length} 個）` : '';
+      $('#nearbyList').innerHTML = rows.map(s => {
+        const d = fmtDist(haversine(state.origin.lat, state.origin.lng, s.lat, s.lng));
+        return `<button class="nrow" data-id="${s.id}">
+          <span><span class="nm">${esc(s.name || '(未命名)')}</span>
+          <br><span class="sub">${esc(s.category_label)} · ${esc(s.region || '')}</span></span>
+          <span class="d">${d}</span></button>`;
+      }).join('') || '<div class="sheetclose">這組篩選附近沒有純點</div>';
+      $('#nearbyList').querySelectorAll('.nrow').forEach(el => el.onclick = () => {
+        const s = SPOTS.find(x => x.id === Number(el.dataset.id));
+        if (!s) return;
+        openNearby(false);
+        openSpot(s.id);
+      });
+    }
+    const openNearby = on => $('#nearby').classList.toggle('on', on);
+    $('#nearbyClose').onclick = () => openNearby(false);
+
+    function locate(showToast) {
+      toast('定位中…');
+      getGeo().then(o => {
+        state.origin = { lat: o.lat, lng: o.lng };
+        state.sortMode = 'distance';
+        showMe(o);
+        if (APPLE) APPLE.goTo(o.lat, o.lng, 14); else map.setView([o.lat, o.lng], 14);
+        render();
+        showNearby();
+        openNearby(true);
+        $('#relocate').hidden = false;
+        if (showToast) toast('已定位，依距離排序 ✅');
+      }).catch(err => {
+        const msg = String(err && (err.message || err.code) || '');
+        if ($('#place').value === NEAR) $('#place').value = '';   // 定位失敗退回「全部」
+        if (showToast) toast(msg.includes('denied') || msg.includes('permission') || msg.includes('User denied')
+          ? '定位被拒（請到設定允許）' : '定位失敗，請再試一次', true);
+      });
+    }
+    $('#relocate').onclick = () => locate(true);
 
     /* PWA install prompt */
     let deferredPrompt = null;
@@ -349,7 +460,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         // 版本查詢字串：繞過 Cloudflare 快取，確保新版 sw 一定被抓到
-        navigator.serviceWorker.register('sw.js?v=5').catch(() => {});
+        navigator.serviceWorker.register('sw.js?v=7').catch(() => {});
       });
     }
   })();
