@@ -349,7 +349,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         // 版本查詢字串：繞過 Cloudflare 快取，確保新版 sw 一定被抓到
-        navigator.serviceWorker.register('sw.js?v=4').catch(() => {});
+        navigator.serviceWorker.register('sw.js?v=5').catch(() => {});
       });
     }
   })();

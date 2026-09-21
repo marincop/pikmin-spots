@@ -2,6 +2,7 @@
   "name": "皮克敏純點地圖",
   "short_name": "皮克敏純點",
   "description": "Pikmin Bloom 純點離線互動地圖（資料來源 pikdecor.com 玩家社群）",
+  "id": "/",
   "lang": "zh-TW",
   "start_url": "./index.html",
   "scope": "./",
