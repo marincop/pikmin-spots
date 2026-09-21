@@ -5,7 +5,7 @@
  */
 'use strict';
 
-const VERSION = 'pikmin-v3';
+const VERSION = 'pikmin-v4';
 const SHELL = [
   './',
   './index.html',
