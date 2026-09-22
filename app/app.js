@@ -133,10 +133,22 @@ function regionBounds(lat, lng, radiusM) {
   return [[lat - dLat, lng - dLng], [lat + dLat, lng + dLng]];
 }
 
+/** 依視野框挑出要放上地圖的點（含外擴邊界，避免邊緣突然冒出） */
+function withinBox(spots, box, padRatio) {
+  if (!box) return spots;
+  const [[s, w], [n, e]] = box;
+  const r = padRatio == null ? 0.15 : padRatio;
+  const padLat = Math.max((n - s) * r, 0.01);
+  const padLng = Math.max((e - w) * r, 0.01);
+  return spots.filter(x =>
+    x.lat >= s - padLat && x.lat <= n + padLat &&
+    x.lng >= w - padLng && x.lng <= e + padLng);
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     countryOf, twCounty, haversine, applyFilters, nextCategory, sortSpots, fmtDist,
-    navURL, navPlatform, regionBounds,
+    navURL, navPlatform, regionBounds, withinBox,
   };
 }
 
@@ -160,6 +172,9 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       near: false,          // 目前是不是「我附近」模式（地圖固定在定位點 50 公里）
     };
     const NEAR_RADIUS_M = 50000;   // 「我附近」＝定位點半徑 50 公里
+    const MAX_MARKERS = 2500;      // iOS 原生地圖一次最多放幾個標記（超過就取離視野中心最近的）
+    let viewBox = null;            // 目前視野 [[南,西],[北,東]]（由 MapKit camera idle 回報）
+    let rendering = false, renderAgain = false;
 
     /* ---------- 地圖層：iOS 走原生 Apple 地圖（MapKit），其餘用 Leaflet ---------- */
     const APPLE = (window.AppleMapsAdapter && window.AppleMapsAdapter.available)
@@ -171,6 +186,8 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     if (APPLE) {
       await APPLE.init();
       await APPLE.setTapHandler(id => openSpot(id));
+      // 視野一動（平移/缩放）就重算該載入哪些標記；150ms 去抖，免得手勢中一直算
+      await APPLE.setIdleHandler(box => { viewBox = box; render(); });
     } else {
       map = L.map('map', { worldCopyJump: true, zoomControl: false })
         .setView([23.9, 120.9], 7);
@@ -343,8 +360,22 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     }
     $('#spotClose').onclick = () => $('#spot').classList.remove('on');
 
-    /* render（async：MapKit 的 marker 增減是原生呼叫） */
+    /* render（async：MapKit 的 marker 增減是原生呼叫）
+     * 用單一鎖序列化：開場的 render 和定位完的 render 會撞在一起，
+     * 若並行跑，後者會拿到「還沒更新」的 appleIds → 同 8702 個標記再加一次
+     * （build 5 就是這樣變成 17404 個原生標記 → 頓 + 閃退）。*/
     async function render() {
+      if (rendering) { renderAgain = true; return; }
+      rendering = true;
+      try {
+        await renderOnce();
+      } finally {
+        rendering = false;
+        if (renderAgain) { renderAgain = false; render(); }
+      }
+    }
+
+    async function renderOnce() {
       const rows = sortSpots(applyFilters(SPOTS, {
         country: state.country, county: state.county, category: state.category,
         namedOnly: state.namedOnly, confirmedOnly: state.confirmedOnly,
@@ -353,23 +384,32 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       state.rows = rows;
 
       if (APPLE) {
-        // 差集更新：只新增/移除有變動的點，不用每次重畫 8702 個 marker
-        const want = new Set(rows.map(s => String(s.id)));
-        const toAdd = rows.filter(s => !appleIds.has(String(s.id)));
-        const toRemove = [...appleIds].filter(id => !want.has(id));
+        // 差集更新：只新增/移除有變動的點，不用每次重畫。
+        // 而且只看視野內的點（50km 視野 ≈ 1771 點，全圖是 8702 點），避免原生標記爆量。
+        if (!viewBox) viewBox = await APPLE.getBounds();   // 開場先跟原生要目前視野
+        let cand = withinBox(rows, viewBox);
+        if (cand.length > MAX_MARKERS && viewBox) {
+          const cLat = (viewBox[0][0] + viewBox[1][0]) / 2;
+          const cLng = (viewBox[0][1] + viewBox[1][1]) / 2;
+          cand = cand.slice()
+            .sort((a, b) => haversine(cLat, cLng, a.lat, a.lng) - haversine(cLat, cLng, b.lat, b.lng))
+            .slice(0, MAX_MARKERS);
+        }
+        const wantIds = new Set(cand.map(s => String(s.id)));
+        const toAdd = cand.filter(s => !appleIds.has(String(s.id)));
+        const toRemove = [...appleIds].filter(id => !wantIds.has(id));
+        appleIds = wantIds;                 // ← 先更新再叫原生（並行才不會重複加）
         if (toRemove.length) await APPLE.removeMarkers(toRemove);
         if (toAdd.length) await APPLE.addMarkers(toAdd);
-        appleIds = want;
-        if (state.near && state.origin) showRegion(state.origin.lat, state.origin.lng, NEAR_RADIUS_M);
-        else if (rows.length) await APPLE.fit(rows);
+        // 相機不在這裡動：「我附近」的 50km 視野只由 locate() 設定，
+        // 否則 idle → render → fitBounds 會無限迴圈
+        if (!state.near && rows.length) await APPLE.fit(rows);
       } else {
         clusters.clearLayers();
         const pts = [];
         rows.forEach(s => { const m = layers.get(s.id); if (m) pts.push(m); });
         if (pts.length) clusters.addLayers(pts);
-        if (state.near && state.origin) {
-          showRegion(state.origin.lat, state.origin.lng, NEAR_RADIUS_M);
-        } else if (rows.length) {
+        if (!state.near && rows.length) {
           map.fitBounds(L.latLngBounds(rows.map(s => [s.lat, s.lng])),
             { padding: [40, 40], maxZoom: 15 });
         }

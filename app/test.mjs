@@ -207,4 +207,31 @@ ok('no crash at the poles', () => {
   assert(box.every(p => p.every(v => Number.isFinite(v))));
 });
 
+console.log('withinBox:');
+ok('null box -> 全部點', () => {
+  const s = [{ lat: 25, lng: 121 }, { lat: 0, lng: 0 }];
+  assert.equal(app.withinBox(s, null).length, 2);
+});
+ok('只留框內的點（含 15% 外擴）', () => {
+  const box = app.regionBounds(25.033, 121.565, 50000);   // 約 [24.58,121.06]-[25.48,122.07]
+  const inside = { lat: 25.0, lng: 121.5 };
+  const outside = { lat: 22.6, lng: 120.3 };             // 高雄（>100km）
+  const nearEdge = { lat: 25.6, lng: 121.6 };            // 在框外但在外擴範圍內
+  const r = app.withinBox([inside, outside, nearEdge], box);
+  assert(r.includes(inside));
+  assert(!r.includes(outside));
+  assert(r.includes(nearEdge), '外擴邊界內的點應該保留');
+});
+ok('padRatio=0 就是嚴格框內', () => {
+  const box = app.regionBounds(25.033, 121.565, 50000);
+  const nearEdge = { lat: 25.6, lng: 121.6 };
+  assert.equal(app.withinBox([nearEdge], box, 0).length, 0);
+});
+ok('不放回額外東西、不變動輸入', () => {
+  const s = [{ lat: 25, lng: 121 }];
+  const before = JSON.stringify(s);
+  app.withinBox(s, app.regionBounds(25, 121, 5000));
+  assert.equal(JSON.stringify(s), before);
+});
+
 console.log(`\n${pass} checks passed ✅`);

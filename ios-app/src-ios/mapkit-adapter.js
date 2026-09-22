@@ -14,6 +14,8 @@ import { AppleMap } from 'capacitor-plugin-apple-maps';
 let map = null;
 let ready = false;
 let tapCb = null;
+let idleCb = null;
+let idleTimer = null;
 
 function swapElement() {
   const old = document.getElementById('map');
@@ -79,6 +81,31 @@ async function setTapHandler(cb) {
   if (ready) await map.setOnMarkerClickListener((d) => cb(d.markerId));
 }
 
+/** 目前視野框 [[南,西],[北,東]]（開場先用它決定要載入哪些標記，避免一次塞滿） */
+async function getBounds() {
+  if (!ready) return null;
+  try {
+    const b = await map.getMapBounds();
+    if (!b || !b.southwest || !b.northeast) return null;
+    return [[b.southwest.lat, b.southwest.lng], [b.northeast.lat, b.northeast.lng]];
+  } catch (e) { return null; }
+}
+
+/** 相機停止移動（平移/縮放結束）時回報視野框 [[南,西],[北,東]]；150ms 去抖，免得手勢中一直算 */
+async function setIdleHandler(cb) {
+  idleCb = cb;
+  if (!ready) return;
+  await map.setOnCameraIdleListener((d) => {
+    if (!idleCb || !d || !d.bounds) return;
+    const b = d.bounds;
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => idleCb([
+      [b.southwest.lat, b.southwest.lng],
+      [b.northeast.lat, b.northeast.lng],
+    ]), 150);
+  });
+}
+
 /** 原生「我的位置」藍點（需要 Info.plist 的 NSLocationWhenInUseUsageDescription） */
 async function showMe(on) {
   if (!ready) return;
@@ -86,5 +113,6 @@ async function showMe(on) {
 }
 
 window.AppleMapsAdapter = {
-  available: true, init, addMarkers, removeMarkers, fit, goTo, showBox, setTapHandler, showMe,
+  available: true, init, addMarkers, removeMarkers, fit, goTo, showBox, getBounds,
+  setTapHandler, setIdleHandler, showMe,
 };
