@@ -64,7 +64,36 @@ TYPE_MAP = {
 }
 
 FIELDS = ("id", "name", "category_label", "region", "address",
-          "lat", "lng", "confirms", "issues", "created_at")
+          "lat", "lng", "confirms", "issues", "created_at", "status")
+
+# OSM category slug -> 我們既有的 category_label（供 candidate 圖層用）
+SLUG_LABEL = {
+    "park": "\U0001f340 公園", "bus": "\U0001f68c 公車站", "minimart": "\U0001f3ea 便利商店",
+    "restaurant": "\U0001f37d\ufe0f 餐廳", "forest": "\U0001f332 森林", "waterside": "\U0001f3a3 水邊",
+    "supermarket": "\U0001f34c 超市", "bridge": "\U0001f309 橋梁", "cafe": "\u2615 咖啡店",
+    "ramen": "\U0001f35c 拉麵店", "clothesstore": "\U0001f457 服飾店", "postoffice": "\U0001f4ee 郵局",
+    "university": "\U0001f393 大學/學院", "station": "\U0001f682 車站", "hotel": "\U0001f3e8 飯店",
+    "library": "\U0001f4da 圖書館/書店", "airport": "\u2708\ufe0f 機場", "electronics": "\U0001f50b 電器行",
+    "pharmacy": "\U0001f48a 藥局", "diy": "\U0001f527 五金行", "beach": "\U0001f41a 海灘",
+    "bakery": "\U0001f956 麵包店", "stadium": "\U0001f3df\ufe0f 體育館", "hairsalon": "\u2702\ufe0f 美容院",
+    "laundry": "\U0001f455 自助洗衣店", "mountain": "\u26f0\ufe0f 山丘", "stationery": "\u270f\ufe0f 文具",
+    "italian": "\U0001f355 義式餐廳", "sushi": "\U0001f363 壽司店", "themePark": "\U0001f3a2 主題樂園",
+    "sweetshop": "\U0001f369 甜點店", "artgallery": "\U0001f3a8 美術館", "korean": "\U0001f96c 韓式餐廳",
+    "shrine": "\u26e9\ufe0f 神社/寺廟", "hamburger": "\U0001f354 漢堡店", "movie": "\U0001f3ac 電影院",
+    "curry": "\U0001f35b 咖哩餐廳", "makeup": "\U0001f484 化妝品商店", "zoo": "\U0001f981 動物園",
+}
+
+
+def load_osm_candidates():
+    """可選：讀 map/data/osm_candidates.json[.gz]（OSM 候選點）。"""
+    for p in (os.path.join(ROOT, "map/data/osm_candidates.json.gz"),
+              os.path.join(ROOT, "map/data/osm_candidates.json")):
+        if os.path.exists(p):
+            text = (gzip.open(p, "rt", encoding="utf-8").read()
+                    if p.endswith(".gz") else open(p, encoding="utf-8").read())
+            data = json.loads(text)
+            return (data["spots"] if isinstance(data, dict) else data), p
+    return [], None
 
 
 def load_pikdecor(path):
@@ -73,7 +102,9 @@ def load_pikdecor(path):
 
 
 def slim(s):
-    return {k: s.get(k) for k in FIELDS if k in s}
+    d = {k: s.get(k) for k in FIELDS if k in s}
+    d["status"] = s.get("status") or "verified"   # 舊資料一律視為 verified
+    return d
 
 
 def main():
@@ -108,6 +139,37 @@ def main():
             "created_at": s.get("UpdateDate") or "",
         })
         added += 1
+
+    # ── OSM 候選點（可選；status=candidate，不影響既有 verified）──
+    cand, cpath = load_osm_candidates()
+    cadded = 0
+    if cand:
+        for s in cand:
+            try:
+                k = key(s["lat"], s["lng"])
+            except Exception:
+                continue
+            if k in seen:
+                continue
+            label = SLUG_LABEL.get(s.get("category"))
+            if not label:
+                continue
+            seen.add(k)
+            out.append({
+                "id": 200000 + len(out),
+                "name": s.get("name") or "",
+                "category_label": label,
+                "region": s.get("region") or "",
+                "address": s.get("address") or "",
+                "lat": round(float(s["lat"]), 6),
+                "lng": round(float(s["lng"]), 6),
+                "confirms": 0,
+                "issues": 0,
+                "created_at": s.get("created_at") or "",
+                "status": "candidate",
+            })
+            cadded += 1
+        print(f"osm candidates（{cpath}）：新增 {cadded} 筆 candidate")
 
     js = "window.PIKMIN_SPOTS = " + json.dumps(out, ensure_ascii=False, separators=(",", ":")) + ";"
     open(path, "w", encoding="utf-8").write(js)

@@ -75,6 +75,7 @@ function applyFilters(spots, opt) {
     if (o.country && countryOf(s.region) !== o.country) return false;
     if (o.county && twCounty(s.region) !== o.county) return false;
     if (cat && s.category_label !== cat) return false;
+    if (!o.showCandidates && s.status === "candidate") return false;   // 預設只顯示社群已驗證的點
     if (o.namedOnly && !s.name) return false;
     if (o.confirmedOnly && !(s.confirms > 0)) return false;
     if (o.visitedOnly && !(visited && visited.has(s.id))) return false;
@@ -167,7 +168,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
 
     const state = {
       country: '', county: '', category: null,
-      namedOnly: false, confirmedOnly: false, visitedOnly: false,
+      namedOnly: false, confirmedOnly: false, visitedOnly: false, showCandidates: false,
       sortMode: 'distance', origin: null, rows: [],
       near: false,          // 目前是不是「我附近」模式（地圖固定在定位點 50 公里）
     };
@@ -378,7 +379,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     async function renderOnce() {
       const rows = sortSpots(applyFilters(SPOTS, {
         country: state.country, county: state.county, category: state.category,
-        namedOnly: state.namedOnly, confirmedOnly: state.confirmedOnly,
+        namedOnly: state.namedOnly, confirmedOnly: state.confirmedOnly, showCandidates: state.showCandidates,
         visitedOnly: state.visitedOnly, visitedSet: visited,
       }), state.sortMode, state.origin);
       state.rows = rows;
@@ -427,6 +428,16 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       if (state.sortMode === 'distance' && !state.origin) locate(false);
       render();
     };
+    /* 「待確認」開關：預設只顯示已驗證的點；打開才顯示 OSM 候選點 */
+    $('#btnCand').onclick = () => {
+      state.showCandidates = !state.showCandidates;
+      $('#btnCand').textContent = state.showCandidates ? '🔍 待確認：開' : '🔍 待確認：關';
+      toast(state.showCandidates
+        ? '顯示「待確認」候選點（OSM 來源，尚未經社群驗證）'
+        : '只顯示社群已驗證的點');
+      render();
+    };
+
     $('#btnReset').onclick = () => {
       state.country = ''; state.county = ''; state.category = null;
       state.namedOnly = false; state.confirmedOnly = false; state.visitedOnly = false;
