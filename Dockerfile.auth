@@ -1,0 +1,26 @@
+# 皮克敏純點地圖 — Apple 登入閘門版
+# Node 服務（零 npm 依賴）＋ 原本的靜態檔；整站需登入且經管理者批准。
+FROM node:20-alpine
+
+WORKDIR /app
+
+# 伺服器（auth.mjs，只用 node 內建模組，不需要 npm install）
+COPY server/ /app/server/
+
+# 靜態檔（與原本 nginx 版相同內容：PWA 在 / ，桌機版在 /map/）
+COPY app/ /app/static/
+COPY map/ /app/static/map/
+
+ENV NODE_ENV=production \
+    PORT=8080 \
+    STATIC_ROOT=/app/static \
+    DATA_DIR=/data
+
+# 名單 / 申請 / session 會寫在這裡（Coolify 記得掛 persistent volume）
+VOLUME ["/data"]
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s \
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||8080)+'/login').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
+CMD ["node", "/app/server/auth.mjs"]
