@@ -150,8 +150,8 @@ function adminHTML() {
   const rows = Object.values(db.users).sort((a, b) => b.ts - a.ts).map((u) => {
     const badge = u.status === "approved" ? "✅ 已批准" : u.status === "denied" ? "⛔ 已拒絕" : "⏳ 待批准";
     const act = u.status === "pending" || !u.status
-      ? `<form method="POST" action="/admin/act" style="display:inline"><input type="hidden" name="sub" value="${u.sub}"><button name="do" value="approve">批准</button> <button name="do" value="deny">拒絕</button></form>`
-      : `<form method="POST" action="/admin/act" style="display:inline"><input type="hidden" name="sub" value="${u.sub}"><button name="do" value="${u.status === "approved" ? "deny" : "approve"}">${u.status === "approved" ? "改為拒絕" : "改為批准"}</button></form>`;
+      ? `<form method="POST" action="/admin/act" style="display:inline"><input type="hidden" name="sub" value="${u.sub}"><button name="do" value="approve">批准</button> <button name="do" value="deny" onclick="return confirm('確定要拒絕嗎？')">拒絕</button></form>`
+      : `<form method="POST" action="/admin/act" style="display:inline"><input type="hidden" name="sub" value="${u.sub}"><button name="do" value="${u.status === "approved" ? "deny" : "approve"}"${u.status === "approved" ? " onclick=\"return confirm('確定要改為拒絕嗎？')\"" : ""}>${u.status === "approved" ? "改為拒絕" : "改為批准"}</button></form>`;
     return `<tr><td>${badge}</td><td>${(u.email || "-")}</td><td style="font-size:12px;color:#8aa">${u.sub}</td><td>${new Date(u.ts).toLocaleString("zh-TW")}</td><td>${act}</td></tr>`;
   }).join("");
   return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>pikmin 管理</title>
