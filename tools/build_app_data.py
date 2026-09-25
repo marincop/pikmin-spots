@@ -8,6 +8,7 @@
 
 用法：python3 tools/build_app_data.py
 """
+import gzip
 import json
 import os
 import re
@@ -137,6 +138,7 @@ def main():
             "confirms": int(s.get("Good") or 0),
             "issues": 0,
             "created_at": s.get("UpdateDate") or "",
+            "status": "verified",
         })
         added += 1
 

@@ -48,7 +48,14 @@ ok('~111km per degree lat', () => {
 ok('zero distance', () => assert.equal(app.haversine(25, 121, 25, 121), 0));
 
 console.log('applyFilters:');
-ok('no opts -> all', () => assert.equal(app.applyFilters(SPOTS, {}).length, SPOTS.length));
+ok('no opts -> verified only（新點預設隱藏）', () => {
+  const r = app.applyFilters(SPOTS, {});
+  assert(r.length > 0 && r.every(s => s.status !== 'candidate'));
+  assert.equal(r.length, SPOTS.filter(s => s.status !== 'candidate').length);
+});
+ok('showCandidates -> 全部（含新點）', () => {
+  assert.equal(app.applyFilters(SPOTS, { showCandidates: true }).length, SPOTS.length);
+});
 ok('country filter', () => {
   const tw = app.applyFilters(SPOTS, { country: '台灣' });
   assert(tw.length > 0 && tw.every(s => app.countryOf(s.region) === '台灣'));
@@ -57,8 +64,9 @@ ok('single category filter', () => {
   const r = app.applyFilters(SPOTS, { category: '🍀 公園' });
   assert(r.length > 0 && r.every(s => s.category_label === '🍀 公園'));
 });
-ok('no category -> all categories', () => {
-  assert.equal(app.applyFilters(SPOTS, { category: null }).length, SPOTS.length);
+ok('no category -> all categories（仍預設只算已驗證）', () => {
+  const r = app.applyFilters(SPOTS, { category: null });
+  assert.equal(r.length, SPOTS.filter(s => s.status !== 'candidate').length);
 });
 ok('confirmedOnly', () => {
   const r = app.applyFilters(SPOTS, { confirmedOnly: true });
