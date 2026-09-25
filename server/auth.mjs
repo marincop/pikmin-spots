@@ -53,7 +53,12 @@ function readSession(cookie) {
   const payload = Buffer.from(p, "base64url").toString();
   const want = crypto.createHmac("sha256", SESSION_SECRET).update(payload).digest("base64url");
   if (mac !== want) return null;
-  const [sub, exp] = payload.split(".");
+  // ⚠️ Apple 的 sub 本身含「.」（例：000043.xxx.0251）→ 不能用 split(".") 切
+  // 用最後一個「.」切開，前面全部是 sub
+  const dot = payload.lastIndexOf(".");
+  if (dot < 0) return null;
+  const sub = payload.slice(0, dot);
+  const exp = payload.slice(dot + 1);
   if (Number(exp) < Date.now()) return null;
   return sub;
 }
