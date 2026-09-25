@@ -31,6 +31,16 @@ const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(16).toSt
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";
 const TG_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
 const TG_CHAT = process.env.TELEGRAM_CHAT_ID || "";
+
+// ── LINE Login（第二種登入來源）──
+const LINE_ID = process.env.LINE_CHANNEL_ID || "";
+const LINE_SECRET = process.env.LINE_CHANNEL_SECRET || "";
+const LINE_AUTHZ = "https://access.line.me/oauth2/v2.1/authorize";
+const LINE_TOKEN = "https://api.line.me/oauth2/v2.1/token";
+const LINE_PROFILE = "https://api.line.me/v2/profile";
+const LINE_BTN = LINE_ID
+  ? '<a href="/api/auth/line/start" style="display:inline-block;margin-top:10px;padding:10px 18px;border-radius:10px;background:#06C755;color:#fff;text-decoration:none;font-size:15px">用 LINE 登入</a>'
+  : "";
 const DB_FILE = path.join(DATA_DIR, "auth.json");
 
 let db = { users: {}, sessions: {} }; // users[sub] = {sub,email,status,ts,note}
@@ -125,7 +135,7 @@ h1{font-size:20px;margin:0 0 6px}p{color:#9fb0c0;font-size:14px;margin:0 0 20px}
 #msg{margin-top:14px;font-size:14px;min-height:22px}#msg.err{color:#ff9a9a}#msg.ok{color:#8ad6a0}
 button{margin-top:8px}</style></head><body><div class="card">
 <h1>🍀 皮克敏純點地圖</h1><p>本站需要 Apple 登入，並由管理者審核通過後才能使用。</p>
-<div id="apple"></div><div id="msg"></div></div>
+<div id="apple"></div>${LINE_BTN}<div id="msg"></div></div>
 <script src="https://appleid.cdn-apple.com/appleauth/static/jsapi/appleid/1/en_US/appleid.auth.js"></script>
 <script>
 const SERVICE_ID = ${JSON.stringify(SERVICE_ID)};
@@ -152,7 +162,8 @@ function adminHTML() {
     const act = u.status === "pending" || !u.status
       ? `<form method="POST" action="/admin/act" style="display:inline"><input type="hidden" name="sub" value="${u.sub}"><button name="do" value="approve">批准</button> <button name="do" value="deny" onclick="return confirm('確定要拒絕嗎？')">拒絕</button></form>`
       : `<form method="POST" action="/admin/act" style="display:inline"><input type="hidden" name="sub" value="${u.sub}"><button name="do" value="${u.status === "approved" ? "deny" : "approve"}"${u.status === "approved" ? " onclick=\"return confirm('確定要改為拒絕嗎？')\"" : ""}>${u.status === "approved" ? "改為拒絕" : "改為批准"}</button></form>`;
-    return `<tr><td>${badge}</td><td>${(u.email || "-")}</td><td style="font-size:12px;color:#8aa">${u.sub}</td><td>${new Date(u.ts).toLocaleString("zh-TW")}</td><td>${act}</td></tr>`;
+    const src = String(u.sub).startsWith("line:") ? "LINE" : "Apple";
+    return `<tr><td>${badge}</td><td>${(u.email || u.name || "-")}</td><td style="font-size:12px;color:#8aa">${src}｜${u.sub}</td><td>${new Date(u.ts).toLocaleString("zh-TW")}</td><td>${act}</td></tr>`;
   }).join("");
   return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>pikmin 管理</title>
 <style>body{font:15px/1.5 -apple-system,"PingFang TC",sans-serif;background:#0f1720;color:#e8eef5;padding:24px}
@@ -177,6 +188,69 @@ a.btn{display:inline-block;margin-top:16px;padding:9px 18px;border-radius:10px;b
 <a class="btn" href="/">🔄 重新整理</a></div></body></html>`;
 };
 
+/* ---------- 使用者紀錄（兩種登入來源共用） ---------- */
+function upsertUser(sub, email, name) {
+  let u = db.users[sub];
+  if (!u) {
+    u = { sub, email: email || "", name: name || "", status: "pending", ts: Date.now() };
+    db.users[sub] = u;
+    save();
+    notifyNew(u);
+  } else if (email && !u.email) {
+    u.email = email;
+    if (name && !u.name) u.name = name;
+    save();
+  }
+  return u;
+}
+
+/* ---------- LINE Login ---------- */
+function lineStart(req, res) {
+  if (!LINE_ID) { res.writeHead(302, { location: "/login?err=line_not_configured" }).end(); return; }
+  const host = req.headers.host || "";
+  const st = crypto.randomBytes(12).toString("hex");
+  const sig = crypto.createHmac("sha256", SESSION_SECRET).update(st).digest("base64url");
+  const ri = `https://${host}/api/auth/line/callback`;
+  const u = `${LINE_AUTHZ}?response_type=code&client_id=${encodeURIComponent(LINE_ID)}` +
+            `&redirect_uri=${encodeURIComponent(ri)}&state=${st}&scope=${encodeURIComponent("profile openid")}`;
+  res.writeHead(302, {
+    "set-cookie": `pkst=${st}.${sig}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600`,
+    location: u,
+  }).end();
+}
+
+async function lineCallback(req, res, url) {
+  const code = url.searchParams.get("code");
+  const state = url.searchParams.get("state");
+  const stc = (req.headers.cookie || "").match(/(?:^|;\s*)pkst=([^;]+)/);
+  const [st, sig] = stc ? stc[1].split(".") : [];
+  const okState = !!(st && state === st && sig === crypto.createHmac("sha256", SESSION_SECRET).update(st).digest("base64url"));
+  if (!code || !okState) { res.writeHead(302, { location: "/login?err=state" }).end(); return; }
+  const host = req.headers.host || "";
+  const ri = `https://${host}/api/auth/line/callback`;
+  try {
+    const tr = await fetch(LINE_TOKEN, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ grant_type: "authorization_code", code, redirect_uri: ri, client_id: LINE_ID, client_secret: LINE_SECRET }),
+    });
+    const tj = await tr.json();
+    if (!tj.access_token) { console.error("LINE token failed:", JSON.stringify(tj).slice(0, 200)); res.writeHead(302, { location: "/login?err=line_token" }).end(); return; }
+    const pr = await fetch(LINE_PROFILE, { headers: { authorization: "Bearer " + tj.access_token } });
+    const pj = await pr.json();
+    if (!pj.userId) { res.writeHead(302, { location: "/login?err=line_profile" }).end(); return; }
+    const sub = "line:" + pj.userId;
+    upsertUser(sub, "", pj.displayName || "");
+    res.writeHead(302, {
+      "set-cookie": `pk=${signSession(sub)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${30 * 86400}`,
+      location: "/",
+    }).end();
+  } catch (e) {
+    console.error("LINE callback error:", e.message);
+    res.writeHead(302, { location: "/login?err=line" }).end();
+  }
+}
+
 /* ---------- HTTP ---------- */
 const server = http.createServer(async (req, res) => {
   console.log(new Date().toISOString(), req.method, req.url);
@@ -194,6 +268,10 @@ const server = http.createServer(async (req, res) => {
   // Apple 的 return URL（popup 模式用不到，但 Service ID 必須登記這個網址）
   if (p === "/api/auth/apple/callback") { res.writeHead(302, { location: "/login" }).end(); return; }
   if (p === "/api/auth/logout") { res.writeHead(302, { "set-cookie": "pk=; Path=/; Max-Age=0", location: "/login" }).end(); return; }
+
+  /* LINE 登入 */
+  if (p === "/api/auth/line/start") { lineStart(req, res); return; }
+  if (p === "/api/auth/line/callback") { await lineCallback(req, res, url); return; }
 
   if (p === "/api/auth/apple" && req.method === "POST") {
     try {
