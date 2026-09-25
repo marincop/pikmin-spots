@@ -159,8 +159,22 @@ button{padding:4px 10px;border-radius:8px;border:1px solid #35455a;background:#1
 <p style="color:#7d8ea0;font-size:13px">批准後，該使用者下次登入即可進入網站。</p></body></html>`;
 }
 
+const waitingHTML = (status) => {
+  const denied = status === "denied";
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>皮克敏純點地圖</title>
+<style>body{margin:0;font:16px/1.7 -apple-system,system-ui,"PingFang TC",sans-serif;background:#0f1720;color:#e8eef5;display:grid;place-items:center;min-height:100vh}
+.card{max-width:400px;padding:32px 28px;background:#161f2b;border:1px solid #24303f;border-radius:16px;text-align:center}
+h1{font-size:20px;margin:0 0 8px}p{color:#9fb0c0;font-size:14.5px}
+a.btn{display:inline-block;margin-top:16px;padding:9px 18px;border-radius:10px;background:#24303f;color:#e8eef5;text-decoration:none;font-size:14px}</style></head>
+<body><div class="card"><h1>${denied ? "⛔ 未通過審核" : "⏳ 已送出申請，等待批准"}</h1>
+<p>${denied ? "你的申請未通過，請聯絡管理者。" : "管理者批准後，按下面的按鈕重新整理就能進入地圖。"}</p>
+<a class="btn" href="/">🔄 重新整理</a></div></body></html>`;
+};
+
 /* ---------- HTTP ---------- */
 const server = http.createServer(async (req, res) => {
+  console.log(new Date().toISOString(), req.method, req.url);
   const url = new URL(req.url, `http://${req.headers.host}`);
   const p = url.pathname;
   const cookie = req.headers.cookie || "";
@@ -183,9 +197,14 @@ const server = http.createServer(async (req, res) => {
       let u = db.users[id.sub];
       if (!u) { u = { sub: id.sub, email: id.email, status: "pending", ts: Date.now() }; db.users[id.sub] = u; save(); notifyNew(u); }
       else if (id.email && !u.email) { u.email = id.email; save(); }
-      if (u.status === "approved") { res.writeHead(200, { "set-cookie": `pk=${signSession(id.sub)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${30 * 86400}`, "content-type": "application/json" }).end(JSON.stringify({ ok: true })); return; }
-      return json(403, { error: "not_approved", message: u.status === "denied" ? "你的申請未通過，請聯絡管理者。" : "已送出申請，請等管理者批准後再登入。" });
-    } catch (e) { return json(401, { error: "verify_failed", message: String(e.message || e) }); }
+      // 一律發通行證；能否放行由閘門依狀態判斷
+      // （批准後只要重新整理即可進入，不用再登入一次）
+      res.writeHead(200, {
+        "set-cookie": `pk=${signSession(id.sub)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${30 * 86400}`,
+        "content-type": "application/json; charset=utf-8",
+      }).end(JSON.stringify({ ok: true, status: u.status }));
+      return;
+    } catch (e) { console.error("APPLE-VERIFY-FAILED:", e.message); return json(401, { error: "verify_failed", message: String(e.message || e) }); }
   }
   if (p === "/api/auth/me") return json(200, { authed, status: user ? user.status : null, email: user ? user.email : null });
 
@@ -204,8 +223,12 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }).end(adminHTML()); return;
   }
 
-  /* 整站保護 */
-  if (!authed) { res.writeHead(302, { location: "/login" }).end(); return; }
+  /* 整站保護：未登入 → 登入頁；已登入但未批准 → 狀態頁；已批准 → 應用本體 */
+  if (!user) { res.writeHead(302, { location: "/login" }).end(); return; }
+  if (user.status !== "approved") {
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }).end(waitingHTML(user.status));
+    return;
+  }
   serveStatic(res, p);
 });
 
