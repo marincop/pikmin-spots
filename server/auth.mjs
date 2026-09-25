@@ -159,9 +159,13 @@ document.getElementById('signin').onclick = async () => {
 function adminHTML() {
   const rows = Object.values(db.users).sort((a, b) => b.ts - a.ts).map((u) => {
     const badge = u.status === "approved" ? "✅ 已批准" : u.status === "denied" ? "⛔ 已拒絕" : "⏳ 待批准";
-    const act = u.status === "pending" || !u.status
-      ? `<form method="POST" action="/admin/act" style="display:inline"><input type="hidden" name="sub" value="${u.sub}"><button name="do" value="approve">批准</button> <button name="do" value="deny" onclick="return confirm('確定要拒絕嗎？')">拒絕</button></form>`
-      : `<form method="POST" action="/admin/act" style="display:inline"><input type="hidden" name="sub" value="${u.sub}"><button name="do" value="${u.status === "approved" ? "deny" : "approve"}"${u.status === "approved" ? " onclick=\"return confirm('確定要改為拒絕嗎？')\"" : ""}>${u.status === "approved" ? "改為拒絕" : "改為批准"}</button></form>`;
+    const btn = (do_, label, msg) => `<button name="do" value="${do_}"${msg ? ` onclick="return confirm('${msg}')"` : ""}>${label}</button>`;
+    const btns = (u.status === "pending" || !u.status)
+      ? btn("approve", "批准") + " " + btn("deny", "拒絕", "確定要拒絕嗎？") + " " + btn("delete", "🗑️ 刪除", "確定要刪除？他下次登入會重新申請。")
+      : u.status === "approved"
+        ? btn("deny", "改為拒絕", "確定要改為拒絕嗎？") + " " + btn("delete", "🗑️ 刪除", "確定要刪除嗎？")
+        : btn("approve", "改為批准") + " " + btn("delete", "🗑️ 刪除", "確定要刪除嗎？");
+    const act = `<form method="POST" action="/admin/act" style="display:inline"><input type="hidden" name="sub" value="${u.sub}">${btns}</form>`;
     const src = String(u.sub).startsWith("line:") ? "LINE" : "Apple";
     return `<tr><td>${badge}</td><td>${(u.email || u.name || "-")}</td><td style="font-size:12px;color:#8aa">${src}｜${u.sub}</td><td>${new Date(u.ts).toLocaleString("zh-TW")}</td><td>${act}</td></tr>`;
   }).join("");
@@ -300,7 +304,11 @@ const server = http.createServer(async (req, res) => {
     if (p === "/admin/act" && req.method === "POST") {
       const q = new URLSearchParams(await body());
       const s = q.get("sub"), act = q.get("do");
-      if (db.users[s]) { db.users[s].status = act === "approve" ? "approved" : "denied"; db.users[s].ts = Date.now(); save(); }
+      if (db.users[s]) {
+        if (act === "delete") { delete db.users[s]; }
+        else { db.users[s].status = act === "approve" ? "approved" : "denied"; db.users[s].ts = Date.now(); }
+        save();
+      }
       res.writeHead(302, { location: "/admin" }).end(); return;
     }
     res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }).end(adminHTML()); return;
