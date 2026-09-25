@@ -59,7 +59,10 @@ button{cursor:pointer}
   color:var(--accent-ink);font-weight:700;font-size:15.5px;text-decoration:none;line-height:1.2;border:0}
 .leaflet-popup-content-wrapper,.leaflet-popup-tip{background:var(--panel2);color:var(--fg)}
 .leaflet-popup-content{margin:10px 12px}
-.mk{filter:drop-shadow(0 0 2px rgba(0,0,0,.45))}
+.mk{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:14px;line-height:1;box-shadow:0 1px 3px rgba(0,0,0,.35)}
+.mk-old{background:#F0B429;border:2px solid #8A5A00;filter:drop-shadow(0 0 2px rgba(0,0,0,.45))}
+.mk-new{background:rgba(255,255,255,.92);border:2px dashed #5B6B7C;filter:grayscale(.5) drop-shadow(0 0 2px rgba(0,0,0,.3))}
+.badge-new{display:inline-block;background:#5B6B7C;color:#fff;font-size:11px;padding:1px 6px;border-radius:8px;margin-right:6px;vertical-align:middle}
 .visited{opacity:.5}
 #toast{position:absolute;left:50%;top:64px;transform:translateX(-50%);z-index:60;background:#fff;
   border:1.5px solid var(--accent);color:#0f5c2f;padding:9px 16px;border-radius:999px;font-size:14.5px;
@@ -94,11 +97,12 @@ button{cursor:pointer}
   <div id="stats">
     <span>顯示 <b id="shown">0</b> / <span id="total">0</span> 個純點</span>
     <span><span id="visitedCount">0</span> 個已踩</span>
+    <span id="candStat"></span>
   </div>
   <div class="row">
     <button id="btnSort">↕️ 排序：距離</button>
     <button id="btnReset">♻️ 重設</button>
-    <button id="btnCand">🔍 待確認：關</button>
+    <button id="btnCand">🧭 新點（待探索）：關</button>
   </div>
 </div>
 

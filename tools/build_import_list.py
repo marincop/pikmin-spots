@@ -72,7 +72,8 @@ def main():
         out.append({
             "id": str(nid),
             "category": slug,
-            "lat": s.get("lat"), "lng": s.get("lng"),
+            # 座標固定 4 位小數 → 建置可重複執行而不產生重複（去重就是比 4 位小數）
+            "lat": f"{float(s['lat']):.4f}", "lng": f"{float(s['lng']):.4f}",
             "name": s.get("name") or "",
             "address": s.get("address") or "",
             "description": (f"OSM 候選點（OpenStreetMap，ODbL）｜純點 R={s.get('purity_R', 100)}m "

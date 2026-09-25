@@ -221,7 +221,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       const dist = state.origin
         ? fmtDist(haversine(state.origin.lat, state.origin.lng, s.lat, s.lng)) : '';
       return `<div class="pop">
-        <div><b>${esc(s.category_label)}</b> · #${s.id}</div>
+        <div>${s.status === 'candidate' ? '<span class="badge-new">待探索</span>' : ''}<b>${esc(s.category_label)}</b> · #${s.id}</div>
         <div style="font-size:14px;margin:4px 0">${esc(s.name || '(未命名)')}</div>
         <div style="font-size:12px;color:#9fbfa7">${esc(s.region || '')}${s.address ? ' · ' + esc(s.address) : ''}</div>
         <div class="c" style="margin:6px 0">${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}${dist ? ' · ' + dist : ''}</div>
@@ -234,9 +234,20 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       </div>`;
     }
 
+    /* 標記：emoji ＝ 分類；實心＝舊點（已探索）、空心虛線＝新點（待探索） */
+    const mkIcon = (s) => {
+      const emoji = String(s.category_label || '').trim().split(' ')[0] || '📍';
+      const cls = s.status === 'candidate' ? 'mk mk-new' : 'mk mk-old';
+      return L.divIcon({
+        className: '',
+        html: `<div class="${cls}">${emoji}</div>`,
+        iconSize: [30, 30], iconAnchor: [15, 15], popupAnchor: [0, -16],
+      });
+    };
+
     if (!APPLE) {
       SPOTS.forEach(s => {
-        const m = L.marker([s.lat, s.lng], { title: s.name || ('#' + s.id) });
+        const m = L.marker([s.lat, s.lng], { icon: mkIcon(s), title: s.name || ('#' + s.id) });
         m.spot = s;
         m.bindPopup(() => popupHTML(s));
         layers.set(s.id, m);
@@ -418,6 +429,15 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       }
       $('#shown').textContent = rows.length;
       $('#visitedCount').textContent = visited.size;
+      /* 新點進度（只有打開開關時才顯示全部新點，但進度一直可見） */
+      const candAll = SPOTS.filter(x => x.status === 'candidate');
+      if (candAll.length) {
+        const candSeen = candAll.filter(x => visited.has(x.id)).length;
+        const el = $('#candStat');
+        if (el) el.textContent = state.showCandidates
+          ? `已探索 ${candSeen} / ${candAll.length} 個新點`
+          : `新點 ${candAll.length} 個（未顯示）`;
+      }
       syncSortBtn();
     }
 
@@ -431,10 +451,10 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     /* 「待確認」開關：預設只顯示已驗證的點；打開才顯示 OSM 候選點 */
     $('#btnCand').onclick = () => {
       state.showCandidates = !state.showCandidates;
-      $('#btnCand').textContent = state.showCandidates ? '🔍 待確認：開' : '🔍 待確認：關';
+      $('#btnCand').textContent = state.showCandidates ? '🧭 新點（待探索）：開' : '🧭 新點（待探索）：關';
       toast(state.showCandidates
-        ? '顯示「待確認」候選點（OSM 來源，尚未經社群驗證）'
-        : '只顯示社群已驗證的點');
+        ? '顯示「新點（待探索）」＝ OSM 算出、還沒人去過 ✓'
+        : '只顯示已探索的舊點 ✓');
       render();
     };
 
